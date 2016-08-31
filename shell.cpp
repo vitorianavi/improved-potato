@@ -1,4 +1,7 @@
+#include <iostream>
+
 #include <stdio.h>
+//#include <iostream>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -6,135 +9,63 @@
 #include <sys/wait.h>
 #include <ncurses.h>
 #include <sys/types.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-#include <errno.h>
+#include <color.h>
 
+using namespace std;
 #define BUFFER_SIZE 64;
-char commands[64][1024];
 
-int found_bar(char *cwd, int *vet){
-  int i,j= 0;
-  for(i = 0; i < strlen(cwd);i++){
-    if(cwd[i] == '/'){
-      vet[j] = i;
-      j++;
+void read_line(char buffer[]) {
+    int position = 0;
+    int character;
+
+    while(1) {
+        // Lê o caractere
+        character = getchar();
+
+        if (character == '\033') { // if the first value is esc
+            getchar(); // skip the [
+            switch(getchar()) { // the real value
+                case 'A':
+                    // code for arrow up
+                    break;
+                case 'B':
+                    // code for arrow down
+                    break;
+                case 'C':
+                    // code for arrow right
+                    printf("alo\n");
+                    break;
+                case 'D':
+                    // code for arrow left
+                    break;
+            }
+        }
+
+        if (character == EOF || character == '\n') {
+            buffer[position] = '\0';
+            //strcpy(buffer, line);
+            break;
+        } else {
+            buffer[position] = character;
+        }
+        position++;
     }
-  }
-  return j;
-}
-char* simple_cwd(char *cwd){
-  char *str  = (char*)malloc(sizeof(char)*1024);
-  int vet[1024];
-  int i = 0,n;
-  int j = found_bar(cwd,vet);
-//  printf("%d\n", j);
-  if(j > 1){
-   n = vet[j-1]+1;
-   while(cwd[n] != '\0'){
-     str[i] = cwd[n];
-     i++;
-     n++;
-   }
-   return str;
-  }
- if(strcmp(cwd, "/home") == 0){
-   str[0] = '~';
-   return str;
- }
- return cwd;
-}
-char* current_dir(){
-  char *cwd,*str;
-  size_t allocSize = sizeof(char) * 1024;
-  cwd = (char*)malloc(allocSize);
-  str = (char*)malloc(allocSize);
-  if (getcwd(cwd, allocSize) != NULL){
-        strcpy(str,simple_cwd(cwd));
-        return str;
-  }
-  else{
-       perror("getcwd() error");
-  }
-  return NULL;
-}
+    /*char *line = NULL;
+    ssize_t buffer_size = 0;
+    // getline faz o processo de alocação e realocação do buffer, dependendo do tamanho
+    getline(&line, &buffer_size, stdin);
 
-char* shell_name(){
-  char host[1024]= "";
-  char *user = getenv("USER");
-  char *prompt = (char*)malloc(sizeof(char)*1024);
-  char cwd[1024];
-  strcpy(cwd,current_dir());
-  gethostname(host,sizeof(host));
-  prompt[0] = '[';
-  strcat(prompt,user);
-  strcat(prompt,"@");
-  strcat(prompt,host);
-  strcat(prompt," ");
-  strcat(prompt,cwd);
-  strcat(prompt,"]");
-  strcat(prompt,"$");
-  strcat(prompt," ");
-  return prompt;
-}
-
-void read_all_commands() {
-  FILE *file;
-  int index = 0;
-  char aux_comm[64];
-  file = fopen("all_commands", "r");
-
-  while(fprintf(file, "%s\n",aux_comm)){
-    strcpy(commands[index],aux_comm);
-    index++;
-  }
-  fclose(file);
-}
-
-
-char* cmd_generator(const char *text, int state){
-	int index = 0, len;
-	char *com_result;
-
-	if (!state) {
-		len = strlen(text);
-	}
-
-  com_result = commands[index];
-	while (com_result) {
-		if (strncmp(com_result, text, len) == 0) {
-			return strdup(com_result);
-		}
-    index++;
-    com_result = commands[index];
-	}
-
-	return NULL;
-}
-
-char** completion(const char *text, int start, int end){
-	rl_attempted_completion_over = 0;
-	return rl_completion_matches(text, cmd_generator);
-}
-
-
-void read_line(char *cmd){
- rl_attempted_completion_function = completion;
-  char *line;
-  line = readline(shell_name());
-	if (line != NULL && line[0] != 0){
-		add_history(line);
-	}
-
-  if(line) {
-    strcpy(cmd, line);
-    free(line);
-  }
+    return line;*/
 }
 
 char **split_line(char *line, int *n_tokens) {
-    int buffer_size = BUFFER_SIZE;
-    int pos = 0;
+    int buffer_size = BUFFER_SIZE;int is_regular_file(const char *path)
+{
+    struct stat path_stat;
+    stat(path, &path_stat);
+    return S_ISREG(path_stat.st_mode);
+}
+    int pos = 0, len;
     char *token, **tokens;
 
     // TODO: consertar esse memory leak
@@ -171,9 +102,6 @@ void get_current_dir(char *current_dir) {
 
 void cmd_cd(char *path, char *last_dir) {
     char tmp[1024];
-    char dir_home[1024];
-    strcpy(dir_home,"/home/");
-  	strcat(dir_home,getenv("LOGNAME"));
 
     //pega o diretório atual para salvar no cache
     get_current_dir(tmp);
@@ -189,11 +117,7 @@ void cmd_cd(char *path, char *last_dir) {
                 return;
             }
         }
-        if(path[0] == '~'){
-          memmove(&path[0], &path[0+ 1], strlen(path) - 0);
-          strcat(dir_home,path);
-          strcpy(path,dir_home);
-        }
+
         // Acessando diretório
         if(chdir(path) != 0) {
         //    perror("lsh");
@@ -257,14 +181,14 @@ int execute_call(char **args) {
 
 int main() {
     char buffer[2048], **tokens;
-    int n_tokens=0;
+    int i, n_tokens=0, len;
 
-    char last_dir[1024];
-    char *cwd = (char*)malloc(sizeof(char)*1024);
+    char last_dir[1024], current_dir[1024];
     last_dir[0]=0;
 
     while(1) {
-        cwd = current_dir();
+        get_current_dir(current_dir);
+        printf("%s> ", current_dir);
         read_line(buffer);
         tokens = split_line(buffer, &n_tokens);
 
@@ -277,7 +201,7 @@ int main() {
                 cmd_ls(tokens[1]);
             else cmd_ls(".");
         } else if(strcmp(tokens[0], "pwd")==0) {
-            printf("%s\n", cwd);
+            printf("%s\n", current_dir);
 
         } else if(n_tokens>1) {
             execute_call(tokens);
