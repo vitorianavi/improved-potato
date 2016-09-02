@@ -9,7 +9,11 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <errno.h>
-
+#include <fcntl.h>
+#define STD_INPUT  0    /* file descriptor for standard input  */
+#define STD_OUTPUT 1    /* file descriptor for standard output */
+#define READ  0         /* read file descriptor from pipe  */
+#define WRITE 1         /* write file descriptor from pipe */
 #define BUFFER_SIZE 64;
 char commands[64][1024];
 
@@ -78,7 +82,7 @@ char* shell_name(){
   return prompt;
 }
 
-void read_all_commands() {
+void read_all_commands(){
   FILE *file;
   int index = 0;
   char aux_comm[64];
@@ -230,44 +234,86 @@ void cmd_ls(char *path) {
         printf("ls: The directory “%s” does not exist.\n", path);
     }
 }
+
+int found_redir(char**tokens, int n_tokens){
+  int i;
+
+  for(i = 0; i < n_tokens; i++){
+      if(strcmp(tokens[i],">") == 0 || strcmp(tokens[i],"<") == 0){
+        return i;
+      }
+  }
+  return -1;
+}
+
+void cmd_redirecinamento(char **tokens, int index){
+  int fd;
+  int pid, i;
+  char cwd[1024], **cmd;
+  cmd = (char**)malloc(sizeof(char*)*64);
+  for(i = 0; i < index;i++){
+    cmd[i] = tokens[i];
+  }
+
+  pid = fork();
+
+  if(pid == -1){
+    printf("Processo filho não pode ser criado\n");
+  }else{
+    if(pid == 0){
+      if(strcmp(tokens[index],">")==0){
+        fd = open(tokens[index+1],O_CREAT | O_TRUNC | O_WRONLY, 0600);
+        dup2(fd, STDOUT_FILENO);
+			  close(fd);
+      }else{
+        fd = open(tokens[index+1], O_CREAT | O_TRUNC | O_WRONLY, 0600);
+			  dup2(fd, STDIN_FILENO);
+			  close(fd);
+      }
+
+		  setenv("parent",getcwd(cwd, 1024),1);
+  		if (execvp(cmd[0],cmd)==-1){
+  			printf("err");
+  			kill(getpid(),SIGTERM);
+  		}
+    }
+    waitpid(pid,NULL,0);
+	  //return 1;
+  }
+}
+
 void cmd_pipe(char **tokens, int n_tokens, int index_pipe){
-  int pipefd[2], i;
-  pid_t pid1, pid2;
-  char cmd1[1024], cmd2[1024];
-  strcpy(cmd1, tokens[0]);
-  strcat(cmd1," ");
-  strcpy(cmd2, tokens[index_pipe+1]);
-  strcat(cmd2, " ");
-  for(i = 1; i  < index_pipe;i++){
-    strcat(cmd1,tokens[i]);
-    strcat(cmd1, " ");
+  int pipefd[2], i, j;
+  int pid1, pid2;
+
+  char **cmd1, **cmd2;
+  cmd1 = (char**)malloc(sizeof(char*)*64);
+  cmd2 = (char**)malloc(sizeof(char*)*64);
+  for(i = 0; i < index_pipe;i++){
+    cmd1[i] = tokens[i];
   }
-  for(i = index_pipe+2; i  < n_tokens;i++){
-    strcat(cmd2,tokens[i]);
-    strcat(cmd2, " ");
+  for(i = index_pipe+1, j = 0; i < n_tokens; i++, j++ ){
+    cmd2[j] = tokens[i];
   }
-  printf("%s\n", tokens[index_pipe+1]);
   pipe(pipefd);
-  //pid1 = fork();
-  switch (fork()) {
-    case -1:
-      printf("Erro no fork\n");
-      break;
-    case 0:
-      close(1);
-      dup(pipefd[1]);
-      close(pipefd[1]);
-      close(pipefd[0]);
-      execlp(tokens[0],cmd1,NULL);
-      break;
-    default:
-      close(0);
-      dup(pipefd[0]);
-      close(pipefd[0]);
-      close(pipefd[1]);
-      execlp(tokens[index_pipe+1],cmd2,0,NULL);
-      break;
+  pid1 = fork();
+  if(pid1 == 0){
+    dup2(pipefd[1],1);
+    close(pipefd[0]);
+    execvp(cmd1[0],cmd1);
   }
+  pid2 = fork();
+
+  if(pid2 == 0){
+      dup2(pipefd[0],0);
+      close(pipefd[1]);
+      execvp(cmd2[0],cmd2);
+    }
+    close(pipefd[0]);
+    close(pipefd[1]);
+    waitpid(pid1,NULL,0);
+    waitpid(pid2,NULL,0);
+
 }
 
 int found_pipe(char **tokens, int n_tokens){
@@ -309,7 +355,7 @@ int execute_call(char **args) {
 int main() {
     char buffer[2048], **tokens;
     int n_tokens=0;
-    int index_pipe;
+    int index_pipe, index_red;
     char last_dir[1024];
     char *cwd = (char*)malloc(sizeof(char)*1024);
     last_dir[0]=0;
@@ -319,11 +365,13 @@ int main() {
         read_line(buffer);
         tokens = split_line(buffer, &n_tokens);
         index_pipe = found_pipe(tokens,n_tokens);
-        printf("%s\n", tokens[0]);
+        index_red = found_redir(tokens, n_tokens);
 
         if(strcmp(tokens[0], "exit")==0) break;
-        if(index_pipe != -1){
-          cmd_pipe(tokens,n_tokens, index_pipe);
+        if(index_red != -1){
+          cmd_redirecinamento(tokens,index_red);
+        }else if(index_pipe != -1){
+            cmd_pipe(tokens,n_tokens, index_pipe);
         }else if(strcmp(tokens[0], "cd")==0) {
             cmd_cd(tokens[1], last_dir);
         } else if(strcmp(tokens[0], "ls")==0) {
