@@ -15,7 +15,7 @@
 #define READ  0         /* read file descriptor from pipe  */
 #define WRITE 1         /* write file descriptor from pipe */
 #define BUFFER_SIZE 64;
-char commands[64][1024];
+char **commands;
 
 int found_bar(char *cwd, int *vet){
   int i,j= 0;
@@ -88,8 +88,8 @@ void read_all_commands(){
   char aux_comm[64];
   file = fopen("all_commands", "r");
 
-  while(fprintf(file, "%s\n",aux_comm)){
-    strcpy(commands[index],aux_comm);
+  while(fprintf(file, "%s\n",aux_comm)==1){
+    strcpy(commands[index], aux_comm);
     index++;
   }
   fclose(file);
@@ -208,7 +208,7 @@ void cmd_cd(char *path, char *last_dir) {
     }
 }
 
-void cmd_ls(char *path) {
+/*void cmd_ls(char *path) {
     DIR *d;
     struct dirent *dir;
 
@@ -233,7 +233,7 @@ void cmd_ls(char *path) {
     } else {
         printf("ls: The directory “%s” does not exist.\n", path);
     }
-}
+}*/
 
 int found_redir(char**tokens, int n_tokens){
   int i;
@@ -247,7 +247,7 @@ int found_redir(char**tokens, int n_tokens){
 }
 
 void cmd_redirecinamento(char **tokens, int index){
-  int fd;
+  int out, in;
   int pid, i;
   char cwd[1024], **cmd;
   cmd = (char**)malloc(sizeof(char*)*64);
@@ -262,14 +262,15 @@ void cmd_redirecinamento(char **tokens, int index){
   }else{
     if(pid == 0){
       if(strcmp(tokens[index],">")==0){
-        fd = open(tokens[index+1],O_CREAT | O_TRUNC | O_WRONLY, 0600);
-        dup2(fd, STDOUT_FILENO);
-			  close(fd);
+        out = open(tokens[index+1],O_CREAT | O_TRUNC | O_WRONLY, 0600);
+        dup2(out, STDOUT_FILENO);
+			  close(out);
       }else{
-        fd = open(tokens[index+1], O_CREAT | O_TRUNC | O_WRONLY, 0600);
-			  dup2(fd, STDIN_FILENO);
-			  close(fd);
+        in = open(tokens[index+1], O_RDONLY); //abre o aqrv apenas para ler
+			  dup2(in, STDIN_FILENO);
+			  close(in);
       }
+
 
 		  setenv("parent",getcwd(cwd, 1024),1);
   		if (execvp(cmd[0],cmd)==-1){
@@ -283,16 +284,30 @@ void cmd_redirecinamento(char **tokens, int index){
 }
 
 void cmd_pipe(char **tokens, int n_tokens, int index_pipe){
-  int pipefd[2], i, j;
+  int pipefd[2], i, j, tam;
   int pid1, pid2;
 
   char **cmd1, **cmd2;
   cmd1 = (char**)malloc(sizeof(char*)*64);
   cmd2 = (char**)malloc(sizeof(char*)*64);
   for(i = 0; i < index_pipe;i++){
+    if(tokens[i][0] == '\"'){
+      memmove(&tokens[i][0],&tokens[i][1], strlen(tokens[i]) - 0);
+    }
+    tam = strlen(tokens[i]);
+    if(tokens[i][tam-1] == '\"'){
+      memmove(&tokens[i][tam-1],&tokens[i][(tam-1)+1], strlen(tokens[i]) - (tam-1));
+    }
     cmd1[i] = tokens[i];
   }
   for(i = index_pipe+1, j = 0; i < n_tokens; i++, j++ ){
+    if(tokens[i][0] == '\"'){
+      memmove(&tokens[i][0],&tokens[i][1], strlen(tokens[i]) - 0);
+    }
+    tam = strlen(tokens[i]);
+    if(tokens[i][tam-1] == '\"'){
+      memmove(&tokens[i][tam-1],&tokens[i][(tam-1)+1], strlen(tokens[i]) - (tam-1));
+    }
     cmd2[j] = tokens[i];
   }
   pipe(pipefd);
@@ -354,11 +369,18 @@ int execute_call(char **args) {
 
 int main() {
     char buffer[2048], **tokens;
-    int n_tokens=0;
+    int n_tokens = 0, i;
     int index_pipe, index_red;
     char last_dir[1024];
     char *cwd = (char*)malloc(sizeof(char)*1024);
     last_dir[0]=0;
+
+    commands = (char**) malloc(sizeof(char*)*4000);
+    for (i = 0; i < 4000; i++) {
+        commands[i] = (char*) malloc(sizeof(char)*64);
+    }
+
+    read_all_commands();
 
     while(1) {
         cwd = current_dir();
@@ -374,14 +396,10 @@ int main() {
             cmd_pipe(tokens,n_tokens, index_pipe);
         }else if(strcmp(tokens[0], "cd")==0) {
             cmd_cd(tokens[1], last_dir);
-        } else if(strcmp(tokens[0], "ls")==0) {
-            if(n_tokens>1)
-                cmd_ls(tokens[1]);
-            else cmd_ls(".");
         } else if(strcmp(tokens[0], "pwd")==0) {
+            getcwd(cwd,sizeof(char)*1024);
             printf("%s\n", cwd);
-
-        } else if(n_tokens>1) {
+        } else if(n_tokens>=1) {
             execute_call(tokens);
         }
 
