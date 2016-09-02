@@ -4,14 +4,13 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/wait.h>
-#include <ncurses.h>
 #include <sys/types.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <errno.h>
 
 #define BUFFER_SIZE 64;
-char commands[64][1024];
+char **commands;
 
 int found_bar(char *cwd, int *vet){
   int i,j= 0;
@@ -44,13 +43,14 @@ char* simple_cwd(char *cwd){
  }
  return cwd;
 }
+
 char* current_dir(){
   char *cwd,*str;
   size_t allocSize = sizeof(char) * 1024;
   cwd = (char*)malloc(allocSize);
   str = (char*)malloc(allocSize);
   if (getcwd(cwd, allocSize) != NULL){
-        strcpy(str,simple_cwd(cwd));
+        strcpy(str, simple_cwd(cwd));
         return str;
   }
   else{
@@ -84,8 +84,8 @@ void read_all_commands() {
   char aux_comm[64];
   file = fopen("all_commands", "r");
 
-  while(fprintf(file, "%s\n",aux_comm)){
-    strcpy(commands[index],aux_comm);
+  while(fprintf(file, "%s\n",aux_comm)==1){
+    strcpy(commands[index], aux_comm);
     index++;
   }
   fclose(file);
@@ -231,22 +231,19 @@ void cmd_ls(char *path) {
     }
 }
 void cmd_pipe(char **tokens, int n_tokens, int index_pipe){
-  int pipefd[2], i;
-  pid_t pid1, pid2;
-  char cmd1[1024], cmd2[1024];
-  strcpy(cmd1, tokens[0]);
-  strcat(cmd1," ");
-  strcpy(cmd2, tokens[index_pipe+1]);
-  strcat(cmd2, " ");
-  for(i = 1; i  < index_pipe;i++){
-    strcat(cmd1,tokens[i]);
-    strcat(cmd1, " ");
+  int pipefd[2], i, j;
+//  pid_t pid1, pid2;
+
+  char **cmd1, **cmd2;
+  cmd1 = (char**)malloc(sizeof(char*)*64);
+  cmd2 = (char**)malloc(sizeof(char*)*64);
+  for(i = 0; i < index_pipe;i++){
+    cmd1[i] = tokens[i];
   }
-  for(i = index_pipe+2; i  < n_tokens;i++){
-    strcat(cmd2,tokens[i]);
-    strcat(cmd2, " ");
+  for(i = index_pipe+1, j = 0; i < n_tokens; i++, j++ ){
+    cmd2[j] = tokens[i];
   }
-  printf("%s\n", tokens[index_pipe+1]);
+
   pipe(pipefd);
   //pid1 = fork();
   switch (fork()) {
@@ -258,14 +255,14 @@ void cmd_pipe(char **tokens, int n_tokens, int index_pipe){
       dup(pipefd[1]);
       close(pipefd[1]);
       close(pipefd[0]);
-      execlp(tokens[0],cmd1,NULL);
+      execvp(cmd1[0], cmd1);
       break;
     default:
       close(0);
       dup(pipefd[0]);
       close(pipefd[0]);
       close(pipefd[1]);
-      execlp(tokens[index_pipe+1],cmd2,0,NULL);
+      execvp(cmd2[0], cmd2);
       break;
   }
 }
@@ -309,17 +306,25 @@ int execute_call(char **args) {
 int main() {
     char buffer[2048], **tokens;
     int n_tokens=0;
-    int index_pipe;
+    int i, index_pipe;
     char last_dir[1024];
     char *cwd = (char*)malloc(sizeof(char)*1024);
     last_dir[0]=0;
+
+    commands = (char**) malloc(sizeof(char*)*4000);
+    for (i = 0; i < 4000; i++) {
+        commands[i] = (char*) malloc(sizeof(char)*64);
+    }
+
+
+    read_all_commands();
 
     while(1) {
         cwd = current_dir();
         read_line(buffer);
         tokens = split_line(buffer, &n_tokens);
         index_pipe = found_pipe(tokens,n_tokens);
-        printf("%s\n", tokens[0]);
+    //    printf("%s\n", tokens[0]);
 
         if(strcmp(tokens[0], "exit")==0) break;
         if(index_pipe != -1){
@@ -331,8 +336,9 @@ int main() {
                 cmd_ls(tokens[1]);
             else cmd_ls(".");
         } else if(strcmp(tokens[0], "pwd")==0) {
+            //printf("%s\n", cwd);
+            getcwd(cwd, sizeof(char) * 1024);
             printf("%s\n", cwd);
-
         } else if(n_tokens>1) {
             execute_call(tokens);
         }
