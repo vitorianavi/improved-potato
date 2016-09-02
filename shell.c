@@ -70,7 +70,7 @@ char* shell_name(){
   strcat(prompt,user);
   strcat(prompt,"@");
   strcat(prompt,host);
-  strcat(prompt," ");
+  strcat(prompt," ");BUFFER_SIZE
   strcat(prompt,cwd);
   strcat(prompt,"]");
   strcat(prompt,"$");
@@ -230,6 +230,57 @@ void cmd_ls(char *path) {
         printf("ls: The directory “%s” does not exist.\n", path);
     }
 }
+void cmd_pipe(char **tokens, int n_tokens, int index_pipe){
+  int pipefd[2], i;
+  pid_t pid1, pid2;
+  char cmd1[1024], cmd2[1024];
+  strcpy(cmd1, tokens[0]);
+  strcat(cmd1," ");
+  strcpy(cmd2, tokens[index_pipe+1]);
+  strcat(cmd2, " ");
+  for(i = 1; i  < index_pipe;i++){
+    strcat(cmd1,tokens[i]);
+    strcat(cmd1, " ");
+  }
+  for(i = index_pipe+2; i  < n_tokens;i++){
+    strcat(cmd2,tokens[i]);
+    strcat(cmd2, " ");
+  }
+  printf("%s\n", tokens[index_pipe+1]);
+  pipe(pipefd);
+  //pid1 = fork();
+  switch (fork()) {
+    case -1:
+      printf("Erro no fork\n");
+      break;
+    case 0:
+      close(1);
+      dup(pipefd[1]);
+      close(pipefd[1]);
+      close(pipefd[0]);
+      execlp(tokens[0],cmd1,NULL);
+      break;
+    default:
+      close(0);
+      dup(pipefd[0]);
+      close(pipefd[0]);
+      close(pipefd[1]);
+      execlp(tokens[index_pipe+1],cmd2,0,NULL);
+      break;
+  }
+}
+
+int found_pipe(char **tokens, int n_tokens){
+  int i;
+
+  for(i = 0; i < n_tokens; i++){
+      if(strcmp(tokens[i],"|") == 0){
+        return i;
+      }
+  }
+
+  return -1;
+}
 
 int execute_call(char **args) {
     pid_t pid;
@@ -258,7 +309,7 @@ int execute_call(char **args) {
 int main() {
     char buffer[2048], **tokens;
     int n_tokens=0;
-
+    int index_pipe;
     char last_dir[1024];
     char *cwd = (char*)malloc(sizeof(char)*1024);
     last_dir[0]=0;
@@ -267,10 +318,13 @@ int main() {
         cwd = current_dir();
         read_line(buffer);
         tokens = split_line(buffer, &n_tokens);
+        index_pipe = found_pipe(tokens,n_tokens);
+        printf("%s\n", tokens[0]);
 
         if(strcmp(tokens[0], "exit")==0) break;
-
-        if(strcmp(tokens[0], "cd")==0) {
+        if(index_pipe != -1){
+          cmd_pipe(tokens,n_tokens, index_pipe);
+        }else if(strcmp(tokens[0], "cd")==0) {
             cmd_cd(tokens[1], last_dir);
         } else if(strcmp(tokens[0], "ls")==0) {
             if(n_tokens>1)
@@ -282,6 +336,7 @@ int main() {
         } else if(n_tokens>1) {
             execute_call(tokens);
         }
+
 
         n_tokens=0;
     }
